@@ -1,0 +1,5 @@
+{
+  "name": "Financial Assistant",
+  "description": "An intelligent financial assistant that analyzes your transaction files (PDF, CSV) to provide spending insights, interactive visualizations, and robust financial advice.",
+  "requestFramePermissions": []
+}
