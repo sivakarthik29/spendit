@@ -1,21 +1,41 @@
+// Backend/src/services/forecast.service.js
+
 export function calculateForecast(transactions) {
-  const monthly = {};
+  if (!transactions || transactions.length === 0) {
+    return {
+      forecast: [],
+      trend: "neutral",
+    };
+  }
+
+  const monthlyMap = {};
 
   transactions.forEach((t) => {
-    const month = t.date.slice(0, 7);
-    monthly[month] = (monthly[month] || 0) + t.amount;
+    const month = new Date(t.date).toISOString().slice(0, 7);
+
+    // Only count debit (spending) for forecast
+    if (t.amount < 0) {
+      monthlyMap[month] = (monthlyMap[month] || 0) + Math.abs(t.amount);
+    }
   });
 
-  const values = Object.values(monthly);
-  const trend =
-    values.length > 1
-      ? values[values.length - 1] > values[values.length - 2]
-        ? "positive"
-        : "negative"
-      : "neutral";
+  const sortedMonths = Object.keys(monthlyMap).sort();
+
+  const monthlyCashflow = sortedMonths.map((m) => ({
+    month: m,
+    predicted: Number(monthlyMap[m].toFixed(2)),
+  }));
+
+  let trend = "neutral";
+
+  if (monthlyCashflow.length >= 2) {
+    const last = monthlyCashflow[monthlyCashflow.length - 1].predicted;
+    const prev = monthlyCashflow[monthlyCashflow.length - 2].predicted;
+    trend = last >= prev ? "increasing" : "decreasing";
+  }
 
   return {
-    monthlyCashflow: monthly,
-    trend
+    forecast: monthlyCashflow,
+    trend,
   };
 }

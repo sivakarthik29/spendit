@@ -1,73 +1,88 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const BASE_URL: string =
+  import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
-/* ===============================
-   HEALTH
-================================= */
-export async function fetchHealth() {
-  const res = await fetch(`${API_URL}/analysis/health`);
-  if (!res.ok) throw new Error("Failed to fetch health");
-  return res.json();
+/* =======================================================
+   GENERIC REQUEST HANDLER (Production Safe)
+======================================================= */
+
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  try {
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        ...(options.body instanceof FormData
+          ? {}
+          : { "Content-Type": "application/json" }),
+        ...options.headers,
+      },
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "API request failed");
+    }
+
+    const contentType = response.headers.get("content-type");
+
+    if (contentType && contentType.includes("application/json")) {
+      return response.json();
+    }
+
+    return {} as T;
+  } catch (error: any) {
+    console.error("API Error:", error.message);
+    throw error;
+  }
 }
 
-/* ===============================
+/* =======================================================
+   DASHBOARD
+======================================================= */
+
+export const fetchDashboard = async () => {
+  return request<any>("/analysis/dashboard");
+};
+
+/* =======================================================
    FORECAST
-================================= */
-export async function fetchForecast() {
-  const res = await fetch(`${API_URL}/analysis/forecast`);
-  if (!res.ok) throw new Error("Failed to fetch forecast");
-  return res.json();
-}
+======================================================= */
 
-/* ===============================
+export const fetchForecast = async () => {
+  return request<any>("/analysis/forecast");
+};
+
+/* =======================================================
    TRANSACTIONS
-================================= */
-export async function fetchTransactions() {
-  const res = await fetch(`${API_URL}/transactions`);
-  if (!res.ok) throw new Error("Failed to fetch transactions");
-  return res.json();
-}
+======================================================= */
 
-/* ===============================
-   WIPE DATABASE
-================================= */
-export async function wipeDatabase() {
-  const res = await fetch(`${API_URL}/transactions/wipe`, {
-    method: "DELETE",
-  });
+export const fetchTransactions = async () => {
+  return request<any>("/transactions");
+};
 
-  if (!res.ok) throw new Error("Failed to wipe database");
+/* =======================================================
+   FILE UPLOAD
+======================================================= */
 
-  return res.json();
-}
-
-/* ===============================
-   Category Breakdown
-================================= */
-export async function fetchCategoryBreakdown() {
-  const res = await fetch(`${API_URL}/analysis/categories`);
-  if (!res.ok) throw new Error("Failed to fetch categories");
-  return res.json();
-}
-
-/* ===============================
-   UPLOAD STATEMENT (CORRECT)
-================================= */
-export async function uploadStatement(file: File) {
+export const uploadStatement = async (file: File) => {
   const formData = new FormData();
-
-  // MUST match multer field name
   formData.append("file", file);
 
-  const res = await fetch(`${API_URL}/ingest`, {
+  return request<any>("/ingest/upload", {
     method: "POST",
     body: formData,
   });
+};
 
-  const data = await res.json();
+/* =======================================================
+   WIPE DATABASE
+======================================================= */
 
-  if (!res.ok) {
-    throw new Error(data.error || "Upload failed");
-  }
-
-  return data;
-}
+export const wipeDatabase = async () => {
+  return request<any>("/analysis/wipe", {
+    method: "DELETE",
+  });
+};

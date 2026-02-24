@@ -1,9 +1,12 @@
 import express from "express";
 import multer from "multer";
-import { ingestPdf } from "../services/ingest.service.js";
+import { ingestStatement } from "../services/ingest.service.js";
 
 const router = express.Router();
-const upload = multer();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+});
 
 router.post("/", upload.single("file"), async (req, res) => {
   try {
@@ -11,17 +14,16 @@ router.post("/", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    const result = await ingestPdf(req.file.buffer);
+    const result = await ingestStatement(req.file.buffer);
 
-    res.json(result);
-
-  } catch (err) {
-    console.error("🔥 UPLOAD ROUTE ERROR:", err.message);
-
-    res.status(500).json({
-      error: "Failed to process statement",
-      message: err.message
+    res.json({
+      success: true,
+      message: "Upload successful",
+      inserted: result.inserted,
     });
+  } catch (err) {
+    console.error("Ingest error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 

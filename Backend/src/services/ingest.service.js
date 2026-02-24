@@ -1,74 +1,110 @@
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { parseStatementWithGemini } from "./gemini.service.js";
-import { classifyTransaction } from "./category.service.js";
 import Transaction from "../models/Transaction.model.js";
+import Insights from "../models/Insights.model.js";
+import { parseStatementWithGemini } from "./gemini.service.js";
+import { generateInsights } from "./insights.service.js";
+import PDFParser from "pdf2json";
 
-export async function ingestPdf(buffer) {
-  try {
-    const uint8Array = new Uint8Array(buffer);
+function extractTextFromPDF(buffer) {
+  return new Promise((resolve, reject) => {
+    const pdfParser = new PDFParser();
 
-    const loadingTask = pdfjsLib.getDocument({
-      data: uint8Array,
-      useSystemFonts: true,
+    pdfParser.on("pdfParser_dataError", (errData) =>
+      reject(errData.parserError)
+    );
+
+    pdfParser.on("pdfParser_dataReady", (pdfData) => {
+      let text = "";
+
+      pdfData.Pages.forEach((page) => {
+        page.Texts.forEach((textItem) => {
+          textItem.R.forEach((r) => {
+            text += decodeURIComponent(r.T) + " ";
+          });
+        });
+      });
+
+      resolve(text);
     });
 
-    const pdf = await loadingTask.promise;
+    pdfParser.parseBuffer(buffer);
+  });
+}
 
-    let text = "";
+function normalizeDate(dateString) {
+  if (!dateString) return null;
 
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const strings = content.items.map((item) => item.str);
-      text += strings.join(" ") + "\n";
-    }
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+    return new Date(dateString);
+  }
 
-    if (!text || text.length < 10) {
-      throw new Error("PDF text extraction failed");
-    }
+  const parts = dateString.split("-");
+  if (parts.length === 3) {
+    const [dd, mm, yyyy] = parts;
+    return new Date(`${yyyy}-${mm}-${dd}`);
+  }
 
-    const aiTransactions = await parseStatementWithGemini(text);
+  return new Date(dateString);
+}
 
-    if (!Array.isArray(aiTransactions)) {
-      throw new Error("Invalid AI output format");
-    }
+function cleanTransaction(tx) {
+  const cleaned = {
+    date: normalizeDate(tx.date),
+    description: tx.description?.trim() || "",
+    amount: Number(tx.amount),
+    category: tx.category || "Other",
+    source: tx.source || "bank_statement",
+  };
 
-    /**
-     * Validate & sanitize AI output
-     */
-    const cleanTransactions = aiTransactions
-      .filter(
-        (t) =>
-          t.date &&
-          t.description &&
-          typeof t.amount === "number"
-      )
-      .map((t) => ({
-        date: new Date(t.date),
-        description: t.description.trim(),
-        amount: Number(t.amount),
-        category: classifyTransaction(t.description),
-        source: "bank_statement",
-      }));
+  if (!cleaned.date || isNaN(cleaned.date.getTime())) {
+    throw new Error(`Invalid date: ${tx.date}`);
+  }
 
-    if (cleanTransactions.length === 0) {
-      throw new Error("No valid transactions parsed");
-    }
+  if (isNaN(cleaned.amount)) {
+    throw new Error(`Invalid amount: ${tx.amount}`);
+  }
 
-    if (cleanTransactions.length > 2000) {
-      throw new Error("Suspicious AI output volume");
-    }
+  return cleaned;
+}
 
-    await Transaction.insertMany(cleanTransactions, {
+export async function ingestStatement(fileBuffer) {
+  if (!fileBuffer) throw new Error("No file uploaded");
+
+  const rawText = await extractTextFromPDF(fileBuffer);
+  if (!rawText || rawText.length < 50)
+    throw new Error("Invalid or empty PDF");
+
+  const parsedTransactions = await parseStatementWithGemini(rawText);
+
+  if (!parsedTransactions.length)
+    throw new Error("No transactions parsed");
+
+  const cleanedTransactions = parsedTransactions.map(cleanTransaction);
+
+  try {
+    await Transaction.insertMany(cleanedTransactions, {
       ordered: false,
     });
-
-    return {
-      success: true,
-      inserted: cleanTransactions.length,
-    };
   } catch (err) {
-    console.error("🔥 Ingest error:", err.message);
-    throw err;
+    // Ignore duplicate key errors
+    if (err.code !== 11000) throw err;
   }
+
+  try {
+    const summary = {
+      totalTransactions: cleanedTransactions.length,
+    };
+
+    const insightsText = await generateInsights(summary);
+
+    if (insightsText) {
+      await Insights.create({ content: insightsText });
+    }
+  } catch (e) {
+    console.warn("Insight generation failed:", e.message);
+  }
+
+  return {
+    success: true,
+    inserted: cleanedTransactions.length,
+  };
 }

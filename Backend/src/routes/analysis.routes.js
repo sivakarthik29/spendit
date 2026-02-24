@@ -1,41 +1,66 @@
 import express from "express";
 import Transaction from "../models/Transaction.model.js";
+import Insights from "../models/Insights.model.js";
+
 import {
+  calculateCoreMetrics,
   calculateHealthScore,
-  generateForecast,
   getCategoryBreakdown,
+  getMonthlyCategorySpending,
 } from "../services/analytics.service.js";
+
+import { calculateForecast } from "../services/forecast.service.js";
 
 const router = express.Router();
 
-router.get("/forecast", async (req, res, next) => {
+/* ================= DASHBOARD ================= */
+
+router.get("/dashboard", async (req, res) => {
   try {
     const transactions = await Transaction.find().lean();
-    const result = generateForecast(transactions);
 
-    res.json({ success: true, ...result });
+    const core = calculateCoreMetrics(transactions);
+    const health = calculateHealthScore(transactions);
+
+    const [categories, monthlyCategory, latestInsights] =
+      await Promise.all([
+        getCategoryBreakdown(),
+        getMonthlyCategorySpending(),
+        Insights.findOne().sort({ createdAt: -1 }),
+      ]);
+
+    res.json({
+      success: true,
+      core,
+      health,
+      categories,
+      monthlyCategory,
+      insights:
+        latestInsights?.content ||
+        "No AI insights generated yet. Upload a statement to generate insights.",
+    });
   } catch (err) {
-    next(err);
+    console.error("Dashboard error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-router.get("/health", async (req, res, next) => {
+/* ================= FORECAST ================= */
+
+router.get("/forecast", async (req, res) => {
   try {
     const transactions = await Transaction.find().lean();
-    const result = calculateHealthScore(transactions);
 
-    res.json({ success: true, ...result });
-  } catch (err) {
-    next(err);
-  }
-});
+    const { forecast, trend } = calculateForecast(transactions);
 
-router.get("/categories", async (req, res) => {
-  try {
-    const data = await getCategoryBreakdown();
-    res.json({ success: true, data });
+    res.json({
+      success: true,
+      forecast,
+      trend,
+    });
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch categories" });
+    console.error("Forecast error:", err);
+    res.status(500).json({ error: "Failed to generate forecast" });
   }
 });
 

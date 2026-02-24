@@ -1,243 +1,201 @@
 import { useEffect, useState } from "react";
-import FileUpload from "./FileUpload";
-import CategoryPieChart from "../CategoryPieChart";
-
 import {
-  fetchHealth,
-  fetchTransactions,
-  fetchForecast,
-  fetchCategoryBreakdown,
+  fetchDashboard,
+  uploadStatement,
 } from "../services/backendService";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
 
-type Health = {
-  success: boolean;
-  score: number;
-  status: string;
-};
+const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6"];
 
-type Forecast = {
-  success: boolean;
-  monthlyCashflow: Record<string, number>;
-  trend: string;
-};
-
-type Transaction = {
-  _id: string;
-  date: string;
-  description: string;
-  amount: number;
-  category: string;
-};
+const formatCurrency = (value: number) =>
+  `₹ ${value?.toLocaleString("en-IN")}`;
 
 export default function Dashboard() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+      const res = await fetchDashboard();
+      setData(res);
+    } catch (e) {
+      console.error("Dashboard fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [
-          healthData,
-          forecastData,
-          txData,
-          categoryData,
-        ] = await Promise.all([
-          fetchHealth(),
-          fetchForecast(),
-          fetchTransactions(),
-          fetchCategoryBreakdown(),
-        ]);
-
-        setHealth(healthData);
-        setForecast(forecastData);
-        setTransactions(txData.data || []);
-        setCategories(categoryData.data || []);
-      } catch (error) {
-        console.error("Dashboard load error:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadData();
+    loadDashboard();
   }, []);
 
-  const totalTransactions = transactions.length;
+  const handleUpload = async () => {
+    if (!file) {
+      alert("Please select a file");
+      return;
+    }
 
-  const netCashFlow = transactions.reduce(
-    (sum, t) => sum + t.amount,
-    0
-  );
-
-  const avgTransaction =
-    totalTransactions > 0
-      ? netCashFlow / totalTransactions
-      : 0;
+    try {
+      setUploading(true);
+      await uploadStatement(file);
+      await loadDashboard();
+      setFile(null);
+    } catch (err) {
+      console.error(err);
+      alert("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (loading) {
-    return (
-      <div className="p-8 text-gray-500">
-        Loading dashboard...
-      </div>
-    );
+    return <div className="text-gray-500">Loading dashboard...</div>;
   }
 
+  const { core, health, categories, monthlyCategory, insights } =
+    data || {};
+
+  const monthlyGrouped =
+    monthlyCategory?.reduce((acc: any, item: any) => {
+      if (!acc[item.month]) {
+        acc[item.month] = { month: item.month, total: 0 };
+      }
+      acc[item.month].total += item.total;
+      return acc;
+    }, {}) || {};
+
+  const monthlyData = Object.values(monthlyGrouped);
+
+  const healthColor =
+    health?.score > 70
+      ? "bg-green-600"
+      : health?.score > 40
+      ? "bg-yellow-500"
+      : "bg-red-600";
+
+  const cleanInsight = insights
+    ?.replace(/^Okay,.*?\*\*\n\n/s, "")
+    ?.slice(0, 500);
+
   return (
-    <div className="p-8 space-y-6">
+    <div className="space-y-8">
 
       {/* Upload Section */}
-      <div className="bg-white rounded-xl shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">
-          Upload Bank Statement
-        </h2>
-        <FileUpload />
+      <div className="bg-white p-6 rounded-xl shadow flex items-center gap-4">
+        <input
+          type="file"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+        />
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          {uploading ? "Processing..." : "Upload"}
+        </button>
       </div>
 
-      {/* Top Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-
-        {/* Health */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl shadow p-6">
-          <h3 className="text-sm opacity-80">
-            Financial Health
-          </h3>
-          <p className="text-4xl font-bold mt-2">
-            {health?.score ?? 0}
-          </p>
-          <p className="mt-2 text-sm">
-            {health?.status ?? "Unknown"}
-          </p>
-        </div>
-
-        {/* Total Transactions */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-sm text-gray-500">
-            Total Transactions
-          </h3>
-          <p className="text-3xl font-semibold mt-2">
-            {totalTransactions}
-          </p>
-        </div>
-
-        {/* Net Cash Flow */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-sm text-gray-500">
-            Net Cash Flow
-          </h3>
-          <p
-            className={`text-3xl font-semibold mt-2 ${
-              netCashFlow >= 0
-                ? "text-green-600"
-                : "text-red-600"
-            }`}
-          >
-            ₹ {netCashFlow.toFixed(2)}
-          </p>
-        </div>
-
-        {/* Average Transaction */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-sm text-gray-500">
-            Avg Transaction
-          </h3>
-          <p className="text-3xl font-semibold mt-2">
-            ₹ {avgTransaction.toFixed(2)}
-          </p>
+      {/* Core Cards */}
+      <div className="grid grid-cols-4 gap-6">
+        <MetricCard
+          title="Total Credited"
+          value={formatCurrency(core?.totalCredit ?? 0)}
+          positive
+        />
+        <MetricCard
+          title="Total Spent"
+          value={formatCurrency(core?.totalDebit ?? 0)}
+        />
+        <MetricCard
+          title="Net Cash Flow"
+          value={formatCurrency(core?.netCashFlow ?? 0)}
+          positive={core?.netCashFlow >= 0}
+        />
+        <div className={`rounded-xl shadow p-6 text-white ${healthColor}`}>
+          <h2 className="text-sm opacity-80">Financial Health</h2>
+          <p className="text-3xl font-bold">{health?.score ?? 0}</p>
+          <p>{health?.status}</p>
         </div>
       </div>
 
-      {/* Forecast Section */}
-      <div className="bg-white rounded-xl shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">
-          Monthly Cashflow Forecast
-        </h2>
-
-        {forecast?.monthlyCashflow &&
-        Object.keys(forecast.monthlyCashflow).length > 0 ? (
-          <div className="space-y-2">
-            {Object.entries(
-              forecast.monthlyCashflow
-            ).map(([month, value]) => (
-              <div
-                key={month}
-                className="flex justify-between border-b pb-2"
-              >
-                <span>{month}</span>
-                <span
-                  className={
-                    value >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
-                  }
+      {/* Charts */}
+      <div className="grid grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl shadow p-6">
+          <h2 className="font-semibold mb-4">Spending Distribution</h2>
+          {categories?.length ? (
+            <ResponsiveContainer width="100%" height={350}>
+              <PieChart>
+                <Pie
+                  data={categories}
+                  dataKey="total"
+                  nameKey="category"
+                  label={false}
+                  outerRadius={120}
                 >
-                  ₹ {value.toFixed(2)}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-500">
-            No forecast data available.
-          </p>
-        )}
+                  {categories.map((_: any, index: number) => (
+                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-gray-400">No data available</p>
+          )}
+        </div>
 
-        <div className="mt-4 text-sm text-gray-500">
-          Trend:{" "}
-          <span className="font-semibold text-black">
-            {forecast?.trend?.toUpperCase() ??
-              "NEUTRAL"}
-          </span>
+        <div className="bg-white rounded-xl shadow p-6">
+          <h2 className="font-semibold mb-4">Monthly Spending</h2>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={(v) => `₹ ${v}`} />
+              <Tooltip formatter={(v: number) => formatCurrency(v)} />
+              <Bar dataKey="total" fill="#2563eb" />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Category Breakdown */}
-      <CategoryPieChart data={categories} />
-
-      {/* Recent Transactions */}
+      {/* Insights */}
       <div className="bg-white rounded-xl shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">
-          Recent Transactions
-        </h2>
-
-        {transactions.length === 0 ? (
-          <p className="text-gray-500">
-            No transactions available.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {transactions.slice(0, 10).map((tx) => (
-              <div
-                key={tx._id}
-                className="flex justify-between border-b pb-2"
-              >
-                <div>
-                  <p className="font-medium">
-                    {tx.description}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {new Date(tx.date).toLocaleDateString()} •{" "}
-                    {tx.category}
-                  </p>
-                </div>
-
-                <p
-                  className={`font-semibold ${
-                    tx.amount >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
-                  }`}
-                >
-                  ₹ {tx.amount.toFixed(2)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+        <h2 className="font-semibold mb-4">AI Financial Insights</h2>
+        <p className="text-gray-700 whitespace-pre-line">
+          {cleanInsight || "No AI insights generated yet."}
+        </p>
       </div>
+    </div>
+  );
+}
 
+function MetricCard({ title, value, positive }: any) {
+  return (
+    <div className="bg-white rounded-xl shadow p-6">
+      <h2 className="text-sm text-gray-500">{title}</h2>
+      <p
+        className={`text-2xl font-bold ${
+          positive ? "text-green-600" : "text-red-600"
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

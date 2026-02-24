@@ -8,12 +8,14 @@
   },
   "dependencies": {
     "@google/genai": "^1.42.0",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
+    "helmet": "^8.1.0",
     "module_name": "^1.0.0",
     "mongoose": "^8.0.0",
+    "morgan": "^1.10.1",
     "multer": "^2.0.2",
-    "pdfjs-dist": "^5.4.624"
+    "pdf2json": "^4.0.2"
   }
 }

@@ -3,12 +3,26 @@ import { fetchTransactions } from "../services/backendService";
 
 export default function TransactionHistory() {
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTransactions().then((res) => {
-      if (res.success) setTransactions(res.data);
-    });
+    async function load() {
+      try {
+        const res = await fetchTransactions();
+        if (res.success) {
+          setTransactions(res.transactions || []);
+        }
+      } catch (err) {
+        console.error("Transaction fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
   }, []);
+
+  if (loading) return <div>Loading transactions...</div>;
 
   return (
     <div>
@@ -28,13 +42,9 @@ export default function TransactionHistory() {
           <tbody>
             {transactions.map((t) => (
               <tr key={t._id}>
-                <td>{t.date}</td>
+                <td>{new Date(t.date).toLocaleDateString()}</td>
                 <td>{t.description}</td>
-                <td
-                  style={{
-                    color: t.amount < 0 ? "red" : "green",
-                  }}
-                >
+                <td style={{ color: t.amount < 0 ? "red" : "green" }}>
                   ₹{t.amount}
                 </td>
               </tr>

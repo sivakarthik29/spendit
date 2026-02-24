@@ -1,29 +1,31 @@
 import Transaction from "../models/Transaction.model.js";
 
-/* ======================================================
-   HEALTH SCORE
-====================================================== */
+export function calculateCoreMetrics(transactions) {
+  let totalCredit = 0;
+  let totalDebit = 0;
+
+  for (const tx of transactions) {
+    if (tx.amount > 0) totalCredit += tx.amount;
+    else totalDebit += Math.abs(tx.amount);
+  }
+
+  return {
+    totalCredit: Number(totalCredit.toFixed(2)),
+    totalDebit: Number(totalDebit.toFixed(2)),
+    netCashFlow: Number((totalCredit - totalDebit).toFixed(2)),
+  };
+}
+
 export function calculateHealthScore(transactions) {
+  const { totalCredit, totalDebit } =
+    calculateCoreMetrics(transactions);
+
   if (!transactions.length) {
     return { score: 50, status: "Fair" };
   }
 
-  const totalIncome = transactions
-    .filter((t) => t.amount > 0)
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalExpense = transactions
-    .filter((t) => t.amount < 0)
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-
-  if (totalIncome === 0 && totalExpense > 0) {
-    return { score: 30, status: "Poor" };
-  }
-
   const savingsRate =
-    totalIncome === 0
-      ? 0
-      : (totalIncome - totalExpense) / totalIncome;
+    totalCredit === 0 ? 0 : (totalCredit - totalDebit) / totalCredit;
 
   let score = Math.round(50 + savingsRate * 50);
   score = Math.max(0, Math.min(100, score));
@@ -36,54 +38,9 @@ export function calculateHealthScore(transactions) {
   return { score, status };
 }
 
-/* ======================================================
-   MONTHLY FORECAST (BAR GRAPH DATA)
-====================================================== */
-export function generateForecast(transactions) {
-  const monthlyCashflow = {};
-
-  for (const tx of transactions) {
-    const dateObj = new Date(tx.date);
-
-    if (isNaN(dateObj)) continue;
-
-    // Extract only YYYY-MM (no T00:00:00.000Z)
-    const month = dateObj.toISOString().slice(0, 7);
-
-    if (!monthlyCashflow[month]) {
-      monthlyCashflow[month] = 0;
-    }
-
-    monthlyCashflow[month] += tx.amount;
-  }
-
-  // Fix floating precision
-  Object.keys(monthlyCashflow).forEach((key) => {
-    monthlyCashflow[key] = Number(
-      monthlyCashflow[key].toFixed(2)
-    );
-  });
-
-  const values = Object.values(monthlyCashflow);
-
-  let trend = "neutral";
-  if (values.length >= 2) {
-    const last = values[values.length - 1];
-    const prev = values[values.length - 2];
-
-    if (last > prev) trend = "positive";
-    else if (last < prev) trend = "negative";
-  }
-
-  return { monthlyCashflow, trend };
-}
-
-/* ======================================================
-   CATEGORY BREAKDOWN (PIE CHART DATA)
-====================================================== */
 export async function getCategoryBreakdown() {
-  const result = await Transaction.aggregate([
-    { $match: { amount: { $lt: 0 } } }, // Only expenses
+  return await Transaction.aggregate([
+    { $match: { amount: { $lt: 0 } } },
     {
       $group: {
         _id: "$category",
@@ -99,6 +56,30 @@ export async function getCategoryBreakdown() {
     },
     { $sort: { total: -1 } },
   ]);
+}
 
-  return result;
+export async function getMonthlyCategorySpending() {
+  return await Transaction.aggregate([
+    { $match: { amount: { $lt: 0 } } },
+    {
+      $group: {
+        _id: {
+          month: {
+            $dateToString: { format: "%Y-%m", date: "$date" },
+          },
+          category: "$category",
+        },
+        total: { $sum: { $abs: "$amount" } },
+      },
+    },
+    {
+      $project: {
+        month: "$_id.month",
+        category: "$_id.category",
+        total: { $round: ["$total", 2] },
+        _id: 0,
+      },
+    },
+    { $sort: { month: 1 } },
+  ]);
 }

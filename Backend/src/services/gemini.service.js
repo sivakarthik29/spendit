@@ -1,22 +1,33 @@
 import { GoogleGenAI } from "@google/genai";
 
-export async function parseStatementWithGemini(text) {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
+function createClient() {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY not set");
+  }
 
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY missing");
-    }
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    apiVersion: "v1",
+  });
+}
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      apiVersion: "v1"
-    });
+function splitIntoChunks(text, maxLength = 12000) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    chunks.push(text.slice(i, i + maxLength));
+  }
+  return chunks;
+}
 
-    const prompt = `
-You are a financial data extraction engine.
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-Extract ALL transactions from the bank statement text below.
+async function parseChunk(chunk, retry = 0) {
+  const ai = createClient();
+
+  const prompt = `
+Extract all transactions from the following bank statement text.
 
 Return ONLY valid JSON array.
 
@@ -31,25 +42,20 @@ Format:
   }
 ]
 
-Rules:
-- Debit = negative amount
-- Credit = positive amount
-- Dates must be ISO format
-- No markdown
-- No explanation
+Debit = negative
+Credit = positive
 
 Text:
-${text}
+${chunk}
 `;
 
+  try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompt
+      contents: prompt,
     });
 
-    const raw = response.text;
-
-    const cleaned = raw
+    const cleaned = response.text
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .trim();
@@ -57,13 +63,30 @@ ${text}
     const parsed = JSON.parse(cleaned);
 
     if (!Array.isArray(parsed)) {
-      throw new Error("Invalid Gemini output");
+      throw new Error("Invalid Gemini response format");
     }
 
     return parsed;
+  } catch (error) {
+    if (error?.status === 429 && retry < 2) {
+      console.warn("Rate limit hit. Retrying...");
+      await sleep(60000);
+      return parseChunk(chunk, retry + 1);
+    }
 
-  } catch (err) {
-    console.error("🔥 Gemini parsing error:", err);
-    throw new Error("Gemini parsing failed");
+    throw error;
   }
+}
+
+export async function parseStatementWithGemini(text) {
+  const chunks = splitIntoChunks(text);
+  const results = [];
+
+  for (const chunk of chunks) {
+    const parsed = await parseChunk(chunk);
+    results.push(parsed);
+    await sleep(12000); // rate safety
+  }
+
+  return results.flat();
 }
