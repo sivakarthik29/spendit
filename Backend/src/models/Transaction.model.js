@@ -15,6 +15,10 @@ const transactionSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    // Not restricted with a schema enum on purpose — categories are
+    // validated and normalized in transaction.service.js before a
+    // transaction ever reaches this model, so bad values are handled
+    // in application code instead of failing a DB write.
     category: {
       type: String,
       default: "Other",
@@ -28,14 +32,11 @@ const transactionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/**
- * Prevent duplicate transactions
- */
+// Prevents the same statement from being inserted twice if a user
+// uploads it (or an overlapping statement) more than once.
 transactionSchema.index(
   { date: 1, description: 1, amount: 1 },
   { unique: true }
 );
 
-const Transaction = mongoose.model("Transaction", transactionSchema);
-
-export default Transaction;
+export default mongoose.model("Transaction", transactionSchema);
