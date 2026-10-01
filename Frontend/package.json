@@ -1,7 +1,6 @@
 {
-  "name": "financial-assistant",
-  "private": true,
-  "version": "0.0.0",
+  "name": "spendit-frontend",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,19 +8,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.30.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-markdown": "^10.1.0",
-    "recharts": "^3.7.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "autoprefixer": "^10.4.24",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.19",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^6.3.0"
   }
 }
